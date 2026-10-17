@@ -178,6 +178,29 @@ public class AdminAuthOffloadTest {
      * {@link BaseResource} would use one if given it.
      */
     @Test
+    public void adminResourcesUseTheirOwningAdminsChallengeTransport() throws Exception {
+        try (PulsarAdmin admin = PulsarAdmin.builder().serviceHttpUrl("http://broker.example:8080").build()) {
+            List<String> missingTransport = new ArrayList<>();
+            int checked = 0;
+
+            for (Method accessor : PulsarAdmin.class.getMethods()) {
+                if (accessor.getParameterCount() != 0 || Modifier.isStatic(accessor.getModifiers())
+                        || accessor.getReturnType() == void.class) {
+                    continue;
+                }
+                if (accessor.invoke(admin) instanceof BaseResource resource) {
+                    checked++;
+                    if (resource.httpChallengeTransportForTest() == null) {
+                        missingTransport.add(accessor.getName());
+                    }
+                }
+            }
+            assertThat(checked).isGreaterThan(0);
+            assertThat(missingTransport).isEmpty();
+        }
+    }
+
+    @Test
     public void theV4CompositionRunsOnTheOwningAdminsOwnPool() throws Exception {
         ThreadRecordingAuthentication auth = new ThreadRecordingAuthentication();
         try (PulsarAdmin admin = PulsarAdmin.builder()
