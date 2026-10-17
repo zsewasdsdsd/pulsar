@@ -59,6 +59,7 @@ import org.apache.pulsar.client.api.AuthenticationDataProvider;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.impl.auth.v5.AsyncHttpAuthenticationProvider;
 import org.apache.pulsar.client.impl.auth.v5.HttpAuthenticationDriver;
+import org.apache.pulsar.client.impl.auth.v5.HttpChallengeTransport;
 import org.apache.pulsar.client.impl.auth.v5.V5AuthContexts;
 import org.apache.pulsar.common.policies.data.ErrorData;
 import org.apache.pulsar.common.util.ObjectMapperFactory;
@@ -77,6 +78,8 @@ public abstract class BaseResource {
     // PulsarAdmin (tests, embedders), which has no admin pool to borrow and falls back to the framework's
     // shared one — still off the caller thread.
     private volatile Executor blockingAuthExecutor;
+    // Supplied by the owning PulsarAdmin so SASL challenges use its configured TLS client.
+    private volatile HttpChallengeTransport httpChallengeTransport;
 
     protected BaseResource(Authentication auth, long requestTimeoutMs) {
         this.auth = auth;
@@ -93,6 +96,14 @@ public abstract class BaseResource {
      */
     void setBlockingAuthExecutor(Executor blockingAuthExecutor) {
         this.blockingAuthExecutor = blockingAuthExecutor;
+    }
+
+    void setHttpChallengeTransport(HttpChallengeTransport transport) {
+        this.httpChallengeTransport = transport;
+    }
+
+    HttpChallengeTransport httpChallengeTransportForTest() {
+        return httpChallengeTransport;
     }
 
     /**
@@ -164,8 +175,9 @@ public abstract class BaseResource {
                         .filter(HttpAuthenticationDriver::supportsHttpChallenge);
                 if (driver.isPresent()) {
                     Duration budget = Duration.ofMillis(requestTimeoutMs > 0 ? requestTimeoutMs : 60_000L);
-                    // Null transport => the driver uses the plugin's own default transport (its JAX-RS client).
-                    return driver.get().authenticateAsync(uri, null, budget)
+                    // Prefer the owning admin's TLS-configured transport. Standalone resources
+                    // still fall back to the plugin's original default transport.
+                    return driver.get().authenticateAsync(uri, httpChallengeTransport, budget)
                             .thenApply(headers -> (headers == null || headers.isEmpty()) ? null : headers.asMap());
                 }
             }
