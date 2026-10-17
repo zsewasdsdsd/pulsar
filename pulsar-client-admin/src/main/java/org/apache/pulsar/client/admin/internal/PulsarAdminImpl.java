@@ -72,6 +72,7 @@ import org.apache.pulsar.client.impl.auth.AuthenticationDisabled;
 import org.apache.pulsar.client.impl.auth.oauth2.AuthenticationOAuth2;
 import org.apache.pulsar.client.impl.auth.v5.DefaultClientAuthenticationServices;
 import org.apache.pulsar.client.impl.auth.v5.FrameworkHttpClientFactory;
+import org.apache.pulsar.client.impl.auth.v5.HttpChallengeTransport;
 import org.apache.pulsar.client.impl.conf.ClientConfigurationData;
 import org.apache.pulsar.client.impl.tls.ClientTlsFactorySupport;
 import org.apache.pulsar.common.net.ServiceURI;
@@ -130,6 +131,7 @@ public class PulsarAdminImpl implements PulsarAdmin {
     // (e.g. OAuth2) so an admin-only client acquires tokens over the framework client; null when the auth
     // plugin does not implement ClientAuthenticationServicesAware. Closed with this admin.
     private FrameworkHttpClientFactory authHttpClientFactory;
+    private final HttpChallengeTransport adminHttpChallengeTransport;
     // PIP-478: the admin's own bounded executor for potentially-blocking authentication work — the v4
     // credential composition on every request, and whatever a services-aware plugin off-loads. Shut down
     // with this admin. Constructing it costs one object: a ThreadPoolExecutor starts no threads until a
@@ -195,6 +197,8 @@ public class PulsarAdminImpl implements PulsarAdmin {
         boolean useTls = clientConfigData.getServiceUrl().startsWith("https://");
 
         this.client = clientBuilder.build();
+        // Share the admin's configured TLS connector with SASL challenge requests.
+        this.adminHttpChallengeTransport = new AdminHttpChallengeTransport(client);
 
         this.serviceUrl = serviceUrl;
         ServiceURI serviceUri = ServiceURI.create(serviceUrl);
@@ -638,6 +642,7 @@ public class PulsarAdminImpl implements PulsarAdmin {
      */
     private <T extends BaseResource> T lendAuthExecutor(T resource) {
         resource.setBlockingAuthExecutor(blockingAuthExecutor);
+        resource.setHttpChallengeTransport(adminHttpChallengeTransport);
         return resource;
     }
 
